@@ -1374,9 +1374,14 @@ int main(int argc, char *argv[]){
     }
 
     legacy::PassManager pass;
+#if 10 <= LLVM_VERSION_MAJOR
+    auto FileType = CGFT_ObjectFile;
+    if (TheTargetMachine->addPassesToEmitFile(pass, dest, nullptr, CGFT_Null, FileType))
+#else
     auto FileType = LLVMTargetMachine::CGFT_ObjectFile;
-
-    if (TheTargetMachine->addPassesToEmitFile(pass, dest, LLVMTargetMachine::CGFT_Null, FileType)) {
+    if (TheTargetMachine->addPassesToEmitFile(pass, dest, LLVMTargetMachine::CGFT_Null, FileType))
+#endif
+    {
       errs() << "TheTargetMachine can't emit a file of this type";
       return 1;
     }
