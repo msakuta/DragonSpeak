@@ -1134,35 +1134,42 @@ int main(int argc, char *argv[]){
   BinopPrecedence['-'] = 20;
   BinopPrecedence['*'] = 40;  // highest.
 
-  if(argc < 2){
-    // std::cerr << "usage: " << argv[0] << " source.txt\n";
-    // Prime the first token.
-    fprintf(stderr, "ready> ");
-    getNextToken();
-
-    TheJIT = std::make_unique<KaleidoscopeJIT>();
-
-    // Make the module, which holds all the code.
-    InitializeModuleAndPassManager();
-
-    // Run the main "interpreter loop" now.
-    MainLoop();
-
-    // Print out all of the generated code.
-    TheModule->print(errs(), nullptr);
-
-    // int tokType = 0;
-    // while((tokType = gettok()) != EOF)
-    //   std::cout << "lex: " << tokType << "\n";
-    return 0;
+  for(int i = 1; i < argc; i++){
+    if(!strcmp(argv[i], "-O0")){
+      optimize = false;
+    }
+    else if(!strcmp(argv[i], "-O")){
+      optimize = true;
+    }
   }
 
-  std::ifstream ifs(argv[1]);
-  if(!ifs.bad()){
-    std::string buf;
-    ifs >> buf;
-    std::cout << buf;
-  }
+  // std::cerr << "usage: " << argv[0] << " source.txt\n";
+  // Prime the first token.
+  fprintf(stderr, "ready> ");
+  getNextToken();
+
+  TheJIT = std::make_unique<KaleidoscopeJIT>();
+
+  // Make the module, which holds all the code.
+  InitializeModuleAndPassManager();
+
+  // Run the main "interpreter loop" now.
+  MainLoop();
+
+  // Print out all of the generated code.
+  TheModule->print(errs(), nullptr);
+
+  // int tokType = 0;
+  // while((tokType = gettok()) != EOF)
+  //   std::cout << "lex: " << tokType << "\n";
+  return 0;
+
+  // std::ifstream ifs(argv[1]);
+  // if(!ifs.bad()){
+  //   std::string buf;
+  //   ifs >> buf;
+  //   std::cout << buf;
+  // }
 }
 
 extern "C" double printd(double d){
