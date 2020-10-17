@@ -1,0 +1,4 @@
+def binary^ 30(l r)
+  l * r * r;
+
+2 ^ 4;
