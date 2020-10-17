@@ -2,3 +2,8 @@ extern printd(d);
 
 for i = 0, i < 3 in
     printd(10 + i);
+
+def binary : 1(LHS RHS)
+  0;
+
+printd(123) : printd(456);

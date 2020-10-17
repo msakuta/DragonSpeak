@@ -1134,3 +1134,8 @@ extern "C" double printd(double d){
   std::cout << d << "\n";
   return d;
 }
+
+extern "C" double putchard(double d){
+  std::cout << (char)d;
+  return d;
+}
