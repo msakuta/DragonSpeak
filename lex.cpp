@@ -3,6 +3,7 @@
 
 #include "KaleidoscopeJIT.h"
 #include "llvm/ADT/APFloat.h"
+#include "llvm/ADT/Optional.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constants.h"
@@ -14,11 +15,16 @@
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Type.h"
 #include "llvm/IR/Verifier.h"
-#include "llvm/Support/TargetSelect.h"
-#include "llvm/Target/TargetMachine.h"
 #include "llvm/Transforms/InstCombine/InstCombine.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Scalar/GVN.h"
+#include "llvm/Support/FileSystem.h"
+#include "llvm/Support/Host.h"
+#include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/TargetRegistry.h"
+#include "llvm/Support/TargetSelect.h"
+#include "llvm/Target/TargetMachine.h"
+#include "llvm/Target/TargetOptions.h"
 #include <string>
 #include <sstream>
 #include <fstream>
@@ -29,6 +35,7 @@
 
 using namespace llvm;
 using namespace llvm::orc;
+using namespace llvm::sys;
 
 // The lexer returns tokens [0-255] if it is an unknown character, otherwise one
 // of these for known things.
@@ -61,6 +68,7 @@ static std::string IdentifierStr; // Filled in if tok_identifier
 static double NumVal;             // Filled in if tok_number
 
 bool optimize = true;
+bool outputObjectFile = false;
 
 /// gettok - Return the next token from standard input.
 static int gettok() {
@@ -1188,7 +1196,8 @@ static void InitializeModuleAndPassManager() {
 static void HandleDefinition() {
   if (auto FnAST = ParseDefinition()) {
     FnAST->ShowAST(0);
-    if (auto *FnIR = FnAST->codegen()) {
+    auto *FnIR = FnAST->codegen();
+    if (!outputObjectFile && FnIR) {
       fprintf(stderr, "Read function definition:");
       FnIR->print(errs());
       fprintf(stderr, "\n");
@@ -1203,7 +1212,8 @@ static void HandleDefinition() {
 
 static void HandleExtern() {
   if (auto ProtoAST = ParseExtern()) {
-    if (auto *FnIR = ProtoAST->codegen()) {
+    auto *FnIR = ProtoAST->codegen();
+    if (!outputObjectFile && FnIR) {
       fprintf(stderr, "Read extern: ");
       FnIR->print(errs());
       fprintf(stderr, "\n");
@@ -1220,7 +1230,8 @@ static void HandleTopLevelExpression() {
   if (auto expr = ParseTopLevelExpr()) {
     fprintf(stderr, "top-level expression AST:");
     expr->ShowAST(0);
-    if (auto *FnIR = expr->codegen()) {
+    auto *FnIR = expr->codegen();
+    if (!outputObjectFile && FnIR) {
       fprintf(stderr, "Read top-level expression:");
       FnIR->print(errs());
       fprintf(stderr, "\n");
@@ -1291,6 +1302,9 @@ int main(int argc, char *argv[]){
     else if(!strcmp(argv[i], "-O")){
       optimize = true;
     }
+    else if(!strcmp(argv[i], "-c")){
+      outputObjectFile = true;
+    }
   }
 
   // std::cerr << "usage: " << argv[0] << " source.txt\n";
@@ -1308,6 +1322,62 @@ int main(int argc, char *argv[]){
 
   // Print out all of the generated code.
   TheModule->print(errs(), nullptr);
+
+  if(outputObjectFile){
+    // Initialize the target registry etc.
+    InitializeAllTargetInfos();
+    InitializeAllTargets();
+    InitializeAllTargetMCs();
+    InitializeAllAsmParsers();
+    InitializeAllAsmPrinters();
+
+    auto TargetTriple = sys::getDefaultTargetTriple();
+    errs() << "TargetTriple: " << TargetTriple << "\n";
+    TheModule->setTargetTriple(TargetTriple);
+
+    std::string Error;
+    auto Target = TargetRegistry::lookupTarget(TargetTriple, Error);
+
+    // Print an error and exit if we couldn't find the requested target.
+    // This generally occurs if we've forgotten to initialise the
+    // TargetRegistry or we have a bogus target triple.
+    if (!Target) {
+      errs() << Error;
+      return 1;
+    }
+
+    auto CPU = "generic";
+    auto Features = "";
+
+    TargetOptions opt;
+    auto RM = Optional<Reloc::Model>();
+    auto TheTargetMachine =
+        Target->createTargetMachine(TargetTriple, CPU, Features, opt, RM);
+
+    TheModule->setDataLayout(TheTargetMachine->createDataLayout());
+
+    auto Filename = "output.o";
+    std::error_code EC;
+    raw_fd_ostream dest(Filename, EC, sys::fs::F_None);
+
+    if (EC) {
+      errs() << "Could not open file: " << EC.message();
+      return 1;
+    }
+
+    legacy::PassManager pass;
+    auto FileType = LLVMTargetMachine::CGFT_ObjectFile;
+
+    if (TheTargetMachine->addPassesToEmitFile(pass, dest, LLVMTargetMachine::CGFT_Null, FileType)) {
+      errs() << "TheTargetMachine can't emit a file of this type";
+      return 1;
+    }
+
+    pass.run(*TheModule);
+    dest.flush();
+
+    outs() << "Wrote " << Filename << "\n";
+  }
 
   // int tokType = 0;
   // while((tokType = gettok()) != EOF)
