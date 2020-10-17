@@ -1,7 +1,12 @@
 
 #include <memory>
 
+#include "llvm/Config/llvm-config.h"
+#if 10 <= LLVM_VERSION_MAJOR
+#include "KaleidoscopeJIT10.h"
+#else
 #include "KaleidoscopeJIT.h"
+#endif
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/IR/BasicBlock.h"
@@ -16,6 +21,9 @@
 #include "llvm/IR/Verifier.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Target/TargetMachine.h"
+#if 10 <= LLVM_VERSION_MAJOR
+#include "llvm/Transforms/Utils.h"
+#endif
 #include "llvm/Transforms/InstCombine/InstCombine.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Scalar/GVN.h"
