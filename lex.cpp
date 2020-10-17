@@ -970,7 +970,7 @@ Function *FunctionAST::codegen() {
     verifyFunction(*TheFunction);
 
     // Optimize the function.
-    if(optimize)
+    if(optimize && TheFPM)
       TheFPM->run(*TheFunction);
 
     return TheFunction;
@@ -1182,23 +1182,25 @@ Value *VarExprAST::codegen() {
 static void InitializeModuleAndPassManager() {
   // Open a new module.
   TheModule = std::make_unique<Module>("my cool jit", TheContext);
-  TheModule->setDataLayout(TheJIT->getTargetMachine().createDataLayout());
+  if(!outputObjectFile){
+    TheModule->setDataLayout(TheJIT->getTargetMachine().createDataLayout());
 
-  // Create a new pass manager attached to it.
-  TheFPM = std::make_unique<legacy::FunctionPassManager>(TheModule.get());
+    // Create a new pass manager attached to it.
+    TheFPM = std::make_unique<legacy::FunctionPassManager>(TheModule.get());
 
-  // Promote allocas to registers.
-  TheFPM->add(createPromoteMemoryToRegisterPass());
-  // Do simple "peephole" optimizations and bit-twiddling optzns.
-  TheFPM->add(createInstructionCombiningPass());
-  // Reassociate expressions.
-  TheFPM->add(createReassociatePass());
-  // Eliminate Common SubExpressions.
-  TheFPM->add(createGVNPass());
-  // Simplify the control flow graph (deleting unreachable blocks, etc).
-  TheFPM->add(createCFGSimplificationPass());
+    // Promote allocas to registers.
+    TheFPM->add(createPromoteMemoryToRegisterPass());
+    // Do simple "peephole" optimizations and bit-twiddling optzns.
+    TheFPM->add(createInstructionCombiningPass());
+    // Reassociate expressions.
+    TheFPM->add(createReassociatePass());
+    // Eliminate Common SubExpressions.
+    TheFPM->add(createGVNPass());
+    // Simplify the control flow graph (deleting unreachable blocks, etc).
+    TheFPM->add(createCFGSimplificationPass());
 
-  TheFPM->doInitialization();
+    TheFPM->doInitialization();
+  }
 }
 
 static void HandleDefinition() {
@@ -1379,7 +1381,7 @@ int main(int argc, char *argv[]){
     if (TheTargetMachine->addPassesToEmitFile(pass, dest, nullptr, CGFT_Null, FileType))
 #else
     auto FileType = LLVMTargetMachine::CGFT_ObjectFile;
-    if (TheTargetMachine->addPassesToEmitFile(pass, dest, LLVMTargetMachine::CGFT_Null, FileType))
+    if (TheTargetMachine->addPassesToEmitFile(pass, dest, FileType))
 #endif
     {
       errs() << "TheTargetMachine can't emit a file of this type";
