@@ -1,0 +1,4 @@
+extern printd(d);
+
+for i = 0, i < 3 in
+    printd(10 + i);

@@ -1,0 +1,6 @@
+extern sin(d);
+extern cos(d);
+
+sin(1);
+cos(1);
+sin(1) + cos(2);

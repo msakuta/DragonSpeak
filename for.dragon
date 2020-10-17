@@ -1,0 +1,5 @@
+def repeat(n)
+    for i = 0, i < n in
+      3;
+
+repeat(10);
