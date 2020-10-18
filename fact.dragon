@@ -1,4 +1,5 @@
-def fact(n)
-  if 1 < n then n * fact(n - 1) else 1;
 
-fact(10);
+def fact(n)
+  if 1 < n then
+    n * fact(n - 1) else
+     1;

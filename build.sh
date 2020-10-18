@@ -1,1 +1,1 @@
-clang++ -g -O3 lex.cpp `llvm-config --cxxflags --ldflags --system-libs --libs core mcjit native` -rdynamic -std=c++1y -o lex
+clang++ -g -O3 lex.cpp `llvm-config --cxxflags --ldflags --system-libs --libs all` -rdynamic -std=c++1y -o lex
