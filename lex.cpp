@@ -199,7 +199,7 @@ public:
   ExprAST(SourceLocation Loc = CurLoc) : Loc(Loc) {}
   virtual ~ExprAST() {}
   virtual Value *codegen() = 0;
-  int getLine() const { errs() << "ExprAST::getLine: " << Loc.Line; return Loc.Line; }
+  int getLine() const { return Loc.Line; }
   int getCol() const { return Loc.Col; }
   virtual raw_ostream &dump(raw_ostream &out, int ind) {
     return out << ':' << getLine() << ':' << getCol() << '\n';
