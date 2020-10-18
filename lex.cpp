@@ -94,12 +94,12 @@ struct SourceLocation {
 };
 static SourceLocation CurLoc;
 static SourceLocation LexLoc = {1, 0};
+std::unique_ptr<std::istream> inputStream; /// Input stream
 
 static int advance() {
-  int LastChar = getchar();
+  int LastChar = inputStream ? inputStream->bad() ? EOF : inputStream->get() : getchar();
 
   if (LastChar == '\n' || LastChar == '\r') {
-    errs() << "incrementing line" << LexLoc.Line << "\n";
     LexLoc.Line++;
     LexLoc.Col = 0;
   } else
@@ -113,6 +113,7 @@ static double NumVal;             // Filled in if tok_number
 bool optimize = true;
 bool outputObjectFile = false;
 bool defineMain = false; /// True if you want to make an executable with toplevel expressions as entry point
+std::string inputFile = ""; /// Empty means REPR from standard input
 
 /// gettok - Return the next token from standard input.
 static int gettok() {
@@ -1344,7 +1345,7 @@ Value *VarExprAST::codegen() {
 
 static void InitializeModuleAndPassManager() {
   // Open a new module.
-  TheModule = std::make_unique<Module>("my cool jit", TheContext);
+  TheModule = std::make_unique<Module>(inputFile.empty() ? "__anon_jit" : inputFile, TheContext);
   if(!outputObjectFile){
     TheModule->setDataLayout(TheJIT->getTargetMachine().createDataLayout());
   }
@@ -1482,12 +1483,24 @@ int main(int argc, char *argv[]){
     else if(!strcmp(argv[i], "-m")){
       defineMain = true;
     }
+    else{
+      inputFile = argv[i];
+    }
   }
 
   // std::cerr << "usage: " << argv[0] << " source.txt\n";
   // Prime the first token.
-  if (!outputObjectFile)
+  if (!outputObjectFile){
     fprintf(stderr, "ready> ");
+  }
+  if(!inputFile.empty()){
+    inputStream = std::make_unique<std::ifstream>(inputFile);
+    if(!inputStream || inputStream->bad()){
+      errs() << "Failed to open input file \"" << inputFile << "\"\n";
+      return 1;
+    }
+    errs() << "Opened input file \"" << inputFile << "\"\n";
+  }
   getNextToken();
 
   TheJIT = std::make_unique<KaleidoscopeJIT>();
@@ -1506,7 +1519,7 @@ int main(int argc, char *argv[]){
   DBuilder = new DIBuilder(*TheModule);
 
   KSDbgInfo.TheCU = DBuilder->createCompileUnit(
-      dwarf::DW_LANG_C, DBuilder->createFile("fact.dragon", "."),
+      dwarf::DW_LANG_C, DBuilder->createFile(inputFile.empty() ? "__anon_file" : inputFile, "."),
       "Kaleidoscope Compiler", 0, "", 0);
 
   // Run the main "interpreter loop" now.
@@ -1551,7 +1564,11 @@ int main(int argc, char *argv[]){
 
     TheModule->setDataLayout(TheTargetMachine->createDataLayout());
 
-    auto Filename = "output.o";
+    std::string Filename = "output.o";
+    auto dot = inputFile.rfind(".");
+    if(inputFile.npos != dot)
+      Filename = inputFile.substr(0, dot) + ".o";
+    errs() << "Filename: " << Filename << "\n";
     std::error_code EC;
     raw_fd_ostream dest(Filename, EC, sys::fs::F_None);
 
