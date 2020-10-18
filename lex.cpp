@@ -1056,7 +1056,11 @@ Function *FunctionAST::codegen() {
   unsigned ScopeLine = LineNo;
   DISubprogram *SP = DBuilder->createFunction(
       FContext, P.getName(), StringRef(), Unit, LineNo,
-      CreateFunctionType(TheFunction->arg_size(), Unit), true, true, ScopeLine,
+      CreateFunctionType(TheFunction->arg_size(), Unit),
+#if !(10 <= LLVM_VERSION_MAJOR)
+      true, true,
+#endif
+      ScopeLine,
       DINode::FlagPrototyped);
   TheFunction->setSubprogram(SP);
 
