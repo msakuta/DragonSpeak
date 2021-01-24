@@ -109,6 +109,7 @@ static int advance() {
 
 static std::string IdentifierStr; // Filled in if tok_identifier
 static double NumVal;             // Filled in if tok_number
+static bool NumHasPeriod = false;
 
 bool optimize = true;
 bool outputObjectFile = false;
@@ -161,6 +162,7 @@ static int gettok() {
     } while (isdigit(LastChar) || LastChar == '.');
 
     NumVal = strtod(NumStr.c_str(), 0);
+    NumHasPeriod = NumStr.find('.') != std::string::npos;
     return tok_number;
   }
 
@@ -191,6 +193,18 @@ static int gettok() {
 //===----------------------------------------------------------------------===//
 namespace {
 
+enum class VarType {
+  Double,
+  Int,
+};
+
+struct VarDef {
+  std::string name;
+  VarType type_;
+  std::unique_ptr<ExprAST> expr;
+};
+
+
 /// ExprAST - Base class for all expression nodes.
 class ExprAST {
   SourceLocation Loc;
@@ -212,13 +226,19 @@ public:
 /// NumberExprAST - Expression class for numeric literals like "1.0".
 class NumberExprAST : public ExprAST {
   double Val;
+  VarType type_ = VarType::Double;
 
 public:
-  NumberExprAST(double Val) : Val(Val) {}
+  NumberExprAST(double Val, bool floating) : Val(Val), type_(floating ? VarType::Double : VarType::Int) {}
   virtual Value *codegen()override;
 
   void ShowAST(int level) override{
-    fprintf(stderr, "%*cNumberExprAST(%g)\n", level, ' ', Val);
+    if (type_ == VarType::Int) {
+      fprintf(stderr, "%*cNumberExprAST(%d: int)\n", level, ' ', int(Val));
+    }
+    else {
+      fprintf(stderr, "%*cNumberExprAST(%g: double)\n", level, ' ', Val);
+    }
   }
 };
 
@@ -294,11 +314,11 @@ public:
 
 /// VarExprAST - Expression class for var/in
 class VarExprAST : public ExprAST {
-  std::vector<std::pair<std::string, std::unique_ptr<ExprAST>>> VarNames;
+  std::vector<VarDef> VarNames;
   std::unique_ptr<ExprAST> Body;
 
 public:
-  VarExprAST(std::vector<std::pair<std::string, std::unique_ptr<ExprAST>>> VarNames,
+  VarExprAST(std::vector<VarDef> VarNames,
              std::unique_ptr<ExprAST> Body)
     : VarNames(std::move(VarNames)), Body(std::move(Body)) {}
 
@@ -307,12 +327,12 @@ public:
   void ShowAST(int level) override{
     std::stringstream ss;
     for(auto& varName : VarNames){
-      ss << varName.first << ", ";
+      ss << varName.name << ": " << (varName.type_ == VarType::Int ? "int" : "double") << ", ";
     }
     fprintf(stderr, "%*cVarExprAST(%s)\n", level, ' ', ss.str().c_str());
     for(auto& varName : VarNames){
-      if(varName.second)
-       varName.second->ShowAST(level + 1);
+      if(varName.expr)
+       varName.expr->ShowAST(level + 1);
     }
     fprintf(stderr, "%*cBody:\n", level, ' ');
     Body->ShowAST(level + 1);
@@ -440,7 +460,7 @@ static std::unique_ptr<ExprAST> ParseExpression();
 
 /// numberexpr ::= number
 static std::unique_ptr<ExprAST> ParseNumberExpr() {
-  auto Result = std::make_unique<NumberExprAST>(NumVal);
+  auto Result = std::make_unique<NumberExprAST>(NumVal, NumHasPeriod);
   getNextToken(); // consume the number
   return std::move(Result);
 }
@@ -578,7 +598,7 @@ static std::unique_ptr<ExprAST> ParseForExpr() {
 static std::unique_ptr<ExprAST> ParseVarExpr() {
   getNextToken();  // eat the var.
 
-  std::vector<std::pair<std::string, std::unique_ptr<ExprAST>>> VarNames;
+  std::vector<VarDef> VarNames;
 
   // At least one variable name is required.
   if (CurTok != tok_identifier)
@@ -588,8 +608,24 @@ static std::unique_ptr<ExprAST> ParseVarExpr() {
     std::string Name = IdentifierStr;
     getNextToken();  // eat identifier.
 
+    // Type name is coming.
+    VarType type_ = VarType::Double;
+    if (CurTok == tok_identifier) {
+      getNextToken(); // eat the type name.
+      if (IdentifierStr == "int")
+        type_ = VarType::Int;
+      else if(IdentifierStr == "double")
+        type_ = VarType::Double;
+      else
+        return LogError((std::string("type name must be int or double, got ") + IdentifierStr).c_str());
+    }
+
     // Read the optional initializer.
-    std::unique_ptr<ExprAST> Init;
+    VarDef varDef{
+      Name,
+      type_,
+    };
+    std::unique_ptr<ExprAST>& Init = varDef.expr;
     if (CurTok == '=') {
       getNextToken(); // eat the '='.
 
@@ -597,7 +633,7 @@ static std::unique_ptr<ExprAST> ParseVarExpr() {
       if (!Init) return nullptr;
     }
 
-    VarNames.push_back(std::make_pair(Name, std::move(Init)));
+    VarNames.push_back(std::move(varDef));
 
     // End of var list, exit loop.
     if (CurTok != ',') break;
@@ -627,7 +663,7 @@ static std::unique_ptr<ExprAST> ParseVarExpr() {
 static std::unique_ptr<ExprAST> ParsePrimary() {
   switch (CurTok) {
   default:
-    return LogError("unknown token when expecting an expression");
+    return LogError((std::string("unknown token when expecting an expression: ") + std::to_string(CurTok)).c_str());
   case tok_identifier:
     return ParseIdentifierExpr();
   case tok_number:
@@ -907,7 +943,10 @@ Function *getFunction(std::string Name) {
 
 Value *NumberExprAST::codegen() {
   KSDbgInfo.emitLocation(this);
-  return ConstantFP::get(TheContext, APFloat(Val));
+  if (type_ == VarType::Int)
+    return Builder.CreateSIToFP(ConstantInt::get(TheContext, APInt(32, Val)), Type::getInt32Ty(TheContext));
+  else
+    return ConstantFP::get(TheContext, APFloat(Val));
 }
 
 Value *VariableExprAST::codegen() {
@@ -1301,8 +1340,8 @@ Value *VarExprAST::codegen() {
 
   // Register all variables and emit their initializer.
   for (unsigned i = 0, e = VarNames.size(); i != e; ++i) {
-    const std::string &VarName = VarNames[i].first;
-    ExprAST *Init = VarNames[i].second.get();
+    const std::string &VarName = VarNames[i].name;
+    ExprAST *Init = VarNames[i].expr.get();
     // Emit the initializer before adding the variable to scope, this prevents
     // the initializer from referencing the variable itself, and permits stuff
     // like this:
@@ -1314,7 +1353,12 @@ Value *VarExprAST::codegen() {
       if (!InitVal)
         return nullptr;
     } else { // If not specified, use 0.0.
-      InitVal = ConstantFP::get(TheContext, APFloat(0.0));
+      if (VarNames[i].type_ == VarType::Double) {
+        InitVal = ConstantFP::get(TheContext, APFloat(0.0));
+      }
+      else {
+        InitVal = ConstantInt::get(TheContext, APInt(32, 0));
+      }
     }
 
     AllocaInst *Alloca = CreateEntryBlockAlloca(TheFunction, VarName);
@@ -1337,7 +1381,7 @@ Value *VarExprAST::codegen() {
 
   // Pop all our variables from scope.
   for (unsigned i = 0, e = VarNames.size(); i != e; ++i)
-    NamedValues[VarNames[i].first] = OldBindings[i];
+    NamedValues[VarNames[i].name] = OldBindings[i];
 
   // Return the body computation.
   return BodyVal;
@@ -1468,11 +1512,12 @@ int main(int argc, char *argv[]){
 
   // Install standard binary operators.
   // 1 is lowest precedence.
-  BinopPrecedence['='] = 2;
-  BinopPrecedence['<'] = 10;
-  BinopPrecedence['+'] = 20;
-  BinopPrecedence['-'] = 20;
-  BinopPrecedence['*'] = 40;  // highest.
+  BinopPrecedence[';'] = 20;
+  BinopPrecedence['='] = 20;
+  BinopPrecedence['<'] = 30;
+  BinopPrecedence['+'] = 40;
+  BinopPrecedence['-'] = 40;
+  BinopPrecedence['*'] = 50;  // highest.
 
   for(int i = 1; i < argc; i++){
     if(!strcmp(argv[i], "-O0")){
